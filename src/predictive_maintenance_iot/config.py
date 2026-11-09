@@ -130,6 +130,39 @@ class MlflowConfig(_Section):
     experiment_name: Annotated[str, Field(pattern=r"^[a-z0-9-]+$", min_length=3, max_length=64)]
 
 
+PositiveFloat = Annotated[float, Field(gt=0)]
+PositiveInt = Annotated[int, Field(gt=0)]
+
+
+class ExpertRulesConfig(_Section):
+    hdf_temp_diff_max_k: PositiveFloat
+    hdf_speed_max_rpm: PositiveFloat
+    pwf_power_min_w: PositiveFloat
+    pwf_power_max_w: PositiveFloat
+    osf_strain_max_min_nm: dict[str, PositiveFloat]
+    twf_tool_wear_min: PositiveFloat
+
+    @model_validator(mode="after")
+    def _pwf_min_below_max(self) -> Self:
+        if self.pwf_power_min_w >= self.pwf_power_max_w:
+            raise ValueError(
+                f"pwf_power_min_w ({self.pwf_power_min_w}) doit être "
+                f"< pwf_power_max_w ({self.pwf_power_max_w})"
+            )
+        return self
+
+
+class LogisticConfig(_Section):
+    C: PositiveFloat
+    max_iter: PositiveInt
+
+
+class BaselinesConfig(_Section):
+    preventive_tool_wear_min: PositiveFloat
+    expert_rules: ExpertRulesConfig
+    logistic: LogisticConfig
+
+
 class Config(_Section):
     project: ProjectConfig
     paths: PathsConfig
@@ -139,6 +172,18 @@ class Config(_Section):
     model: ModelConfig
     decision: DecisionConfig
     mlflow: MlflowConfig
+    baselines: BaselinesConfig
+
+    @model_validator(mode="after")
+    def _osf_thresholds_match_product_types(self) -> Self:
+        thresholds = set(self.baselines.expert_rules.osf_strain_max_min_nm)
+        allowed = set(self.columns.product_type.allowed)
+        if thresholds != allowed:
+            raise ValueError(
+                "baselines.expert_rules.osf_strain_max_min_nm doit contenir exactement les types "
+                f"{sorted(allowed)} (reçu {sorted(thresholds)})"
+            )
+        return self
 
 
 def load_config(path: Path = DEFAULT_CONFIG_PATH) -> Config:

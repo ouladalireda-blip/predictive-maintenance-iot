@@ -58,3 +58,17 @@ decision:
 mlflow:
   tracking_uri: sqlite:///mlflow.db   # suivi local dans un fichier, sans serveur à installer
   experiment_name: predictive-maintenance-ai4i
+
+# Références à battre par le modèle ML (évaluées sur la validation uniquement).
+baselines:
+  preventive_tool_wear_min: 200        # B1 : remplacement systématique de l'outil
+  expert_rules:                         # B2 : seuils physiques documentés du procédé (borne haute)
+    hdf_temp_diff_max_k: 8.6
+    hdf_speed_max_rpm: 1380
+    pwf_power_min_w: 3500
+    pwf_power_max_w: 9000
+    osf_strain_max_min_nm: {L: 11000, M: 12000, H: 13000}
+    twf_tool_wear_min: 200
+  logistic:                             # B3 : régression logistique sur les variables du préprocesseur
+    C: 1.0
+    max_iter: 1000

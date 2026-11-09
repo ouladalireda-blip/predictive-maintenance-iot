@@ -49,6 +49,13 @@ def test_load_real_config() -> None:
     assert config.columns.row_id == "UDI"
     assert config.columns.product_type.column == "Type"
     assert config.columns.product_type.allowed == ["L", "M", "H"]
+    assert config.baselines.preventive_tool_wear_min == 200
+    assert config.baselines.expert_rules.osf_strain_max_min_nm == {
+        "L": 11000,
+        "M": 12000,
+        "H": 13000,
+    }
+    assert config.baselines.logistic.max_iter == 1000
 
 
 def test_missing_file_raises(tmp_path: Path) -> None:
@@ -197,6 +204,64 @@ def test_min_precision_out_of_range(
 ) -> None:
     base_config["decision"]["min_precision"] = value
     with pytest.raises(ValidationError):
+        load_config(write_config(base_config))
+
+
+# --- baselines --------------------------------------------------------------------------
+
+
+def _set_nested(data: dict[str, Any], dotted_key: str, value: Any) -> None:
+    *parents, last = dotted_key.split(".")
+    for key in parents:
+        data = data[key]
+    data[last] = value
+
+
+@pytest.mark.parametrize(
+    "key",
+    [
+        "baselines.preventive_tool_wear_min",
+        "baselines.expert_rules.hdf_temp_diff_max_k",
+        "baselines.expert_rules.hdf_speed_max_rpm",
+        "baselines.expert_rules.pwf_power_min_w",
+        "baselines.expert_rules.pwf_power_max_w",
+        "baselines.expert_rules.osf_strain_max_min_nm.L",
+        "baselines.expert_rules.twf_tool_wear_min",
+        "baselines.logistic.C",
+        "baselines.logistic.max_iter",
+    ],
+)
+@pytest.mark.parametrize("value", [0, -1])
+def test_baseline_values_must_be_positive(
+    base_config: dict[str, Any], write_config: WriteConfig, key: str, value: float
+) -> None:
+    _set_nested(base_config, key, value)
+    with pytest.raises(ValidationError, match="greater than 0"):
+        load_config(write_config(base_config))
+
+
+@pytest.mark.parametrize(("low", "high"), [(9000, 3500), (5000, 5000)])
+def test_pwf_min_below_max(
+    base_config: dict[str, Any], write_config: WriteConfig, low: float, high: float
+) -> None:
+    rules = base_config["baselines"]["expert_rules"]
+    rules["pwf_power_min_w"], rules["pwf_power_max_w"] = low, high
+    with pytest.raises(ValidationError, match="pwf_power_min_w .* doit être < pwf_power_max_w"):
+        load_config(write_config(base_config))
+
+
+@pytest.mark.parametrize(
+    "thresholds",
+    [
+        {"L": 11000, "M": 12000},  # H manquant
+        {"L": 11000, "M": 12000, "H": 13000, "X": 9000},  # type en trop
+    ],
+)
+def test_osf_thresholds_match_product_types(
+    base_config: dict[str, Any], write_config: WriteConfig, thresholds: dict[str, float]
+) -> None:
+    base_config["baselines"]["expert_rules"]["osf_strain_max_min_nm"] = thresholds
+    with pytest.raises(ValidationError, match="doit contenir exactement les types"):
         load_config(write_config(base_config))
 
 
