@@ -164,6 +164,12 @@ class BaselinesConfig(_Section):
     logistic: LogisticConfig
 
 
+class AnalysisConfig(_Section):
+    cv_folds: Annotated[int, Field(ge=2)]
+    bootstrap_iterations: PositiveInt
+    shap_examples: PositiveInt
+
+
 class Config(_Section):
     project: ProjectConfig
     paths: PathsConfig
@@ -174,6 +180,7 @@ class Config(_Section):
     decision: DecisionConfig
     mlflow: MlflowConfig
     baselines: BaselinesConfig
+    analysis: AnalysisConfig
 
     @model_validator(mode="after")
     def _osf_thresholds_match_product_types(self) -> Self:

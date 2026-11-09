@@ -1,0 +1,6 @@
+{
+  "model_path": "artifacts/xgboost.joblib",
+  "sha256": "84b0026a5852f5ef5e5255dff85cc9a080165ea50e105efa9e15031f1755115c",
+  "generated_at": "2026-11-09T14:06:55+00:00",
+  "git_commit": "f52c80a46891d029c292d0c091c4d1ba11c6c2ee"
+}

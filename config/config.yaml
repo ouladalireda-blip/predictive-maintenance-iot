@@ -73,3 +73,9 @@ baselines:
   logistic:                             # B3 : régression logistique sur les variables du préprocesseur
     C: 1.0
     max_iter: 1000
+
+# Analyses complémentaires (stabilité, incertitude, erreurs, ablation, SHAP) : train + val uniquement.
+analysis:
+  cv_folds: 5                 # validation croisée stratifiée sur TRAIN
+  bootstrap_iterations: 1000  # rééchantillonnages de VAL pour les intervalles à 95 %
+  shap_examples: 2            # pannes détectées expliquées individuellement

@@ -185,3 +185,21 @@ def test_preprocessor_joblib_roundtrip(ai4i_df: pd.DataFrame, cfg: Config, tmp_p
     reloaded = joblib.load(path)
 
     pd.testing.assert_frame_equal(reloaded.transform(ai4i_df), pipeline.transform(ai4i_df))
+
+
+def test_preprocessor_without_derived_features(ai4i_df: pd.DataFrame, cfg: Config) -> None:
+    preprocessor = build_preprocessor(cfg, include_derived=False)
+    out = preprocessor.fit_transform(ai4i_df)
+
+    assert not set(NEW_FEATURES) & set(out.columns)
+    assert list(out.columns) == [
+        "product_type",
+        "air_temperature_k",
+        "process_temperature_k",
+        "rotational_speed_rpm",
+        "torque_nm",
+        "tool_wear_min",
+    ]
+    assert "physical_features" not in preprocessor.named_steps
+    # Par défaut, les variables dérivées restent présentes.
+    assert set(NEW_FEATURES) <= set(build_preprocessor(cfg).fit_transform(ai4i_df).columns)

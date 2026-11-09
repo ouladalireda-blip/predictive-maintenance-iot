@@ -148,17 +148,21 @@ class RenameColumns(BaseEstimator, TransformerMixin):
         return np.asarray([self.mapping.get(f, f) for f in input_features], dtype=object)
 
 
-def build_preprocessor(cfg: Config) -> Pipeline:
+def build_preprocessor(cfg: Config, include_derived: bool = True) -> Pipeline:
     """Pipeline : variables physiques → encodage du type produit + passthrough numérique.
 
     Seules les variables explicatives sortent du pipeline : ids, colonnes de fuite et cible
     sont exclues (remainder="drop"). La sortie est un DataFrame pandas aux noms snake_case :
     ceux de COLUMN_MAP pour les mesures, "product_type" pour le type, et les 3 variables
     physiques (noms identiques à l'API, compatibles XGBoost, lisibles dans SHAP).
+
+    include_derived=False (ablation) : ni PhysicalFeatures ni les 3 variables dérivées ;
+    seules les mesures brutes et le type produit sortent du pipeline.
     """
     product_type = cfg.columns.product_type
     output_names = {csv: api for api, csv in COLUMN_MAP.items()}
     output_names[product_type.column] = PRODUCT_TYPE_FEATURE
+    derived = list(NEW_FEATURES) if include_derived else []
     encoder = ColumnTransformer(
         transformers=[
             (
@@ -166,16 +170,13 @@ def build_preprocessor(cfg: Config) -> Pipeline:
                 OrdinalEncoder(categories=[product_type.allowed]),
                 [product_type.column],
             ),
-            ("numeric", "passthrough", [*cfg.columns.numeric, *NEW_FEATURES]),
+            ("numeric", "passthrough", [*cfg.columns.numeric, *derived]),
         ],
         remainder="drop",
         verbose_feature_names_out=False,
     )
-    pipeline = Pipeline(
-        steps=[
-            ("physical_features", PhysicalFeatures.from_config(cfg)),
-            ("encode", encoder),
-            ("rename", RenameColumns(output_names)),
-        ]
-    )
-    return pipeline.set_output(transform="pandas")
+    steps: list[tuple[str, Any]] = []
+    if include_derived:
+        steps.append(("physical_features", PhysicalFeatures.from_config(cfg)))
+    steps += [("encode", encoder), ("rename", RenameColumns(output_names))]
+    return Pipeline(steps=steps).set_output(transform="pandas")

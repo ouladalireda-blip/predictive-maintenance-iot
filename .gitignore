@@ -60,3 +60,4 @@ reports/
 *.joblib
 artifacts/*
 !artifacts/thresholds.json
+!artifacts/model_fingerprint.json

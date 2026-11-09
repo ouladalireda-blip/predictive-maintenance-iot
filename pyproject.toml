@@ -8,6 +8,7 @@ dependencies = [
     "fastapi>=0.162.2",
     "httpx>=0.28.1",
     "joblib>=1.6.0",
+    "matplotlib>=3.11.2",
     "mlflow>=3.18.0",
     "pandas>=3.1.1",
     "pandera>=0.35.0",
@@ -45,7 +46,7 @@ line-length = 100
 select = ["E", "W", "F", "I", "UP", "B"]
 
 [[tool.mypy.overrides]]
-module = ["sklearn.*", "joblib.*"]
+module = ["sklearn.*", "joblib.*", "shap.*"]
 ignore_missing_imports = true
 
 [tool.pytest.ini_options]
