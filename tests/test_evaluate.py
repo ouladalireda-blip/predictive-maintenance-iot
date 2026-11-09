@@ -17,7 +17,11 @@ from predictive_maintenance_iot.models import evaluate as evaluate_module
 from predictive_maintenance_iot.models.baseline import build_logistic_baseline
 from predictive_maintenance_iot.models.evaluate import (
     B0,
+    HYBRID,
+    HYBRID_FREE,
     SCORED_MODELS,
+    XGB,
+    XGB_FREE,
     compare_on_validation,
     cost_at_threshold,
     find_best_threshold,
@@ -26,6 +30,7 @@ from predictive_maintenance_iot.models.evaluate import (
 from predictive_maintenance_iot.models.train import build_xgb_pipeline
 
 CONFIG_PATH = Path(__file__).resolve().parents[1] / "config" / "config.yaml"
+N_APPROACHES = 8  # B0-B3, XGBoost (avec/sans contrainte), hybride (avec/sans contrainte)
 
 
 # --- cost_at_threshold ------------------------------------------------------------------
@@ -104,6 +109,30 @@ def test_threshold_moves_with_cost_of_missed_failure() -> None:
     assert expensive_miss["tp"] + expensive_miss["fp"] > cheap_miss["tp"] + cheap_miss["fp"]
 
 
+# --- Approche hybride (alertes forcées) ---------------------------------------------
+
+
+def test_forced_alert_triggers_despite_low_probability() -> None:
+    # Ligne 0 : usure >= 200 (forcée) mais proba XGBoost 0,01 ; ligne 1 : ni forcée ni au-dessus.
+    result = cost_at_threshold(
+        [1, 0], [0.01, 0.02], 0.5, cost_fn=3000, cost_fp=150, forced_alert=[True, False]
+    )
+    assert (result["tp"], result["fp"], result["fn"], result["tn"]) == (1, 0, 0, 1)
+
+
+def test_threshold_is_optimised_on_combined_cost() -> None:
+    # La panne (ligne 0) est déjà couverte par l'alerte forcée : inutile de baisser le seuil
+    # jusqu'à 0,3, ce qui ajouterait la fausse alerte de la ligne 1.
+    y, p, forced = [1, 0, 0], [0.3, 0.3, 0.1], [True, False, False]
+    alone = find_best_threshold(y, p, cost_fn=10, cost_fp=1, min_precision=0.0)
+    combined = find_best_threshold(
+        y, p, cost_fn=10, cost_fp=1, min_precision=0.0, forced_alert=forced
+    )
+    assert alone["threshold"] == pytest.approx(0.3)
+    assert combined["threshold"] > 0.3
+    assert combined["total_cost_eur"] == 0
+
+
 # --- Comparaison sur données synthétiques -----------------------------------------------
 
 
@@ -171,7 +200,7 @@ def test_compare_on_validation(cfg: Config) -> None:
     val = pd.read_csv(cfg.paths.processed_dir / "val.csv")
     n_failures = int(val[cfg.columns.target].sum())
 
-    assert len(df) == 5
+    assert len(df) == N_APPROACHES
     assert df.loc[B0, "total_cost_eur"] == n_failures * cfg.decision.cost_missed_failure_eur
     assert df.loc[B0, "gain_vs_b0_eur"] == 0
     assert (df["detected"] + df["missed"] == n_failures).all()
@@ -184,7 +213,7 @@ def test_sensitivity_analysis(cfg: Config) -> None:
     ratios = (5, 50)
     df = sensitivity_analysis(cfg, ratios=ratios)
 
-    assert len(df) == len(ratios) * 5
+    assert len(df) == len(ratios) * N_APPROACHES
     for ratio, group in df.groupby("ratio_fn_fp"):
         assert (group["cost_fn_eur"] == ratio * cfg.decision.cost_false_alarm_eur).all()
         assert group["rank"].min() == 1
@@ -223,3 +252,37 @@ def test_main_never_reads_test_csv(cfg: Config, monkeypatch: pytest.MonkeyPatch)
     assert {"xgb_val_cost_eur", "xgb_threshold", "b2_val_cost_eur"} <= set(run.data.metrics)
     artifacts = {a.path for a in client.list_artifacts(run.info.run_id)}
     assert artifacts == {"validation_comparison.csv", "sensitivity.csv", "thresholds.json"}
+
+
+def test_new_approaches_on_validation(cfg: Config) -> None:
+    df = compare_on_validation(cfg)
+    val = pd.read_csv(cfg.paths.processed_dir / "val.csv")
+    worn = int((val["Tool wear [min]"] >= cfg.baselines.preventive_tool_wear_min).sum())
+    assert worn > 0  # le jeu synthétique contient bien des outils usés
+
+    # L'hybride alerte au moins sur toutes les lignes à usure >= seuil, quelle que soit la proba.
+    for approach in (HYBRID, HYBRID_FREE):
+        assert df.loc[approach, "detected"] + df.loc[approach, "false_alarms"] >= worn
+
+    # Sans contrainte de précision, le coût ne peut qu'être inférieur ou égal.
+    assert df.loc[XGB_FREE, "total_cost_eur"] <= df.loc[XGB, "total_cost_eur"]
+    assert df.loc[HYBRID_FREE, "total_cost_eur"] <= df.loc[HYBRID, "total_cost_eur"]
+
+
+def test_precision_ok_reported_for_all_approaches(cfg: Config) -> None:
+    df = compare_on_validation(cfg)
+
+    assert df["precision_ok"].notna().all()
+    expected = df["precision"] >= cfg.decision.min_precision
+    assert (df["precision_ok"] == expected).all()
+    assert not df.loc[B0, "precision_ok"]  # aucune alerte : précision 0 par convention
+
+
+def test_sensitivity_includes_new_approaches(cfg: Config) -> None:
+    df = sensitivity_analysis(cfg, ratios=(5, 50))
+
+    assert {XGB_FREE, HYBRID, HYBRID_FREE} <= set(df["approach"])
+    for _, group in df.groupby("ratio_fn_fp"):
+        cost = group.set_index("approach")["total_cost_eur"]
+        assert cost[XGB_FREE] <= cost[XGB]
+        assert cost[HYBRID_FREE] <= cost[HYBRID]

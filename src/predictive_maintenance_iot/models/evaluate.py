@@ -13,8 +13,9 @@ from __future__ import annotations
 import json
 import logging
 from collections.abc import Iterable
+from dataclasses import dataclass
 from datetime import UTC, datetime
-from typing import Any
+from typing import Any, Literal
 
 import joblib
 import mlflow
@@ -35,25 +36,54 @@ B1 = "B1 preventive"
 B2 = "B2 regles expertes"
 B3 = "B3 logistique"
 XGB = "XGBoost"
+XGB_FREE = "XGBoost (sans contrainte)"
+HYBRID = "Hybride XGBoost + preventif"
+HYBRID_FREE = "Hybride XGBoost + preventif (sans contrainte)"
 # Approche à seuil optimisé → nom du pipeline sauvegardé par train.py ({artifacts_dir}/{nom}.joblib)
 SCORED_MODELS: dict[str, str] = {B3: "logistic", XGB: "xgboost"}
 
 ArrayLike = pd.Series | np.ndarray
 
 
+@dataclass(frozen=True)
+class _Approach:
+    """Sorties d'une approche sur la validation.
+
+    - kind="binary" : `values` contient des alertes 0/1 (règles), pas de seuil à choisir.
+    - kind="proba" : `values` contient des scores ; le seuil est optimisé sur le coût.
+      `forced_alert` : lignes alertées quel que soit le seuil (approche hybride).
+      `constrained` : applique decision.min_precision lors du choix du seuil.
+    """
+
+    kind: Literal["binary", "proba"]
+    values: np.ndarray
+    forced_alert: np.ndarray | None = None
+    constrained: bool = True
+
+
 # --- Coût et seuil ----------------------------------------------------------------------
 
 
 def cost_at_threshold(
-    y_true: ArrayLike, proba: ArrayLike, threshold: float, cost_fn: float, cost_fp: float
+    y_true: ArrayLike,
+    proba: ArrayLike,
+    threshold: float,
+    cost_fn: float,
+    cost_fp: float,
+    forced_alert: ArrayLike | None = None,
 ) -> dict[str, Any]:
     """Matrice de confusion et coût total en alertant quand proba >= threshold.
+
+    `forced_alert` (optionnel) : masque booléen des lignes alertées quel que soit le seuil
+    (ex. remplacement préventif de l'outil dans l'approche hybride).
 
     Convention : precision = 0 quand aucune alerte n'est émise (un seuil qui n'alerte jamais
     ne peut donc pas satisfaire une contrainte de précision minimale strictement positive).
     """
     truth = np.asarray(y_true).astype(int)
     alert = np.asarray(proba) >= threshold
+    if forced_alert is not None:
+        alert = alert | np.asarray(forced_alert, dtype=bool)
     tp = int((alert & (truth == 1)).sum())
     fp = int((alert & (truth == 0)).sum())
     fn = int((~alert & (truth == 1)).sum())
@@ -75,17 +105,22 @@ def find_best_threshold(
     cost_fn: float,
     cost_fp: float,
     min_precision: float,
+    forced_alert: ArrayLike | None = None,
 ) -> dict[str, Any]:
     """Seuil de coût minimal parmi les valeurs uniques de proba (+ 0 et 1).
 
     Seuls les seuils de précision >= min_precision sont retenus ; à coût égal, le plus élevé
     (moins d'alertes) l'emporte. Si aucun seuil n'est admissible, renvoie le seuil de coût
     minimal sans contrainte avec constraint_satisfied=False.
+    Avec `forced_alert`, coût et précision sont ceux de la combinaison (score OU forcé).
     """
     scores = np.asarray(proba, dtype=float)
     candidates = np.unique(np.concatenate([scores, [0.0, 1.0]]))
     results = [
-        {"threshold": float(t), **cost_at_threshold(y_true, scores, t, cost_fn, cost_fp)}
+        {
+            "threshold": float(t),
+            **cost_at_threshold(y_true, scores, t, cost_fn, cost_fp, forced_alert),
+        }
         for t in candidates
     ]
     admissible = [r for r in results if r["precision"] >= min_precision]
@@ -103,8 +138,8 @@ def find_best_threshold(
 # --- Comparaison des approches ----------------------------------------------------------
 
 
-def _load_validation_outputs(cfg: Config) -> tuple[pd.Series, dict[str, tuple[str, np.ndarray]]]:
-    """Cible de validation et sorties de chaque approche : ("binary", 0/1) ou ("proba", score)."""
+def _load_validation_outputs(cfg: Config) -> tuple[pd.Series, dict[str, _Approach]]:
+    """Cible de validation et sorties de chaque approche (voir `_Approach`)."""
     target = cfg.columns.target
     processed = cfg.paths.processed_dir
     train = pd.read_csv(processed / "train.csv")
@@ -112,36 +147,59 @@ def _load_validation_outputs(cfg: Config) -> tuple[pd.Series, dict[str, tuple[st
     X_train, y_train = train.drop(columns=[target]), train[target]
     X_val, y_val = val.drop(columns=[target]), val[target]
 
-    outputs: dict[str, tuple[str, np.ndarray]] = {
-        B0: ("binary", np.zeros(len(val), dtype=int)),
-        B1: ("binary", PreventiveBaseline.from_config(cfg).fit(X_train, y_train).predict(X_val)),
-        B2: ("binary", ExpertRulesBaseline.from_config(cfg).fit(X_train, y_train).predict(X_val)),
+    # Alerte préventive (usure >= preventive_tool_wear_min) : B1 seul, ou forcée dans l'hybride.
+    preventive = PreventiveBaseline.from_config(cfg).fit(X_train, y_train).predict(X_val)
+    expert = ExpertRulesBaseline.from_config(cfg).fit(X_train, y_train).predict(X_val)
+    approaches: dict[str, _Approach] = {
+        B0: _Approach("binary", np.zeros(len(val), dtype=int)),
+        B1: _Approach("binary", preventive),
+        B2: _Approach("binary", expert),
     }
+
+    scores: dict[str, np.ndarray] = {}
     for approach, filename in SCORED_MODELS.items():
         path = cfg.paths.artifacts_dir / f"{filename}.joblib"
         if not path.is_file():
             raise FileNotFoundError(f"{path} introuvable : lancer d'abord models/train.py")
-        pipeline = joblib.load(path)
-        outputs[approach] = ("proba", pipeline.predict_proba(X_val)[:, 1])
-    return y_val, outputs
+        scores[approach] = joblib.load(path).predict_proba(X_val)[:, 1]
+        approaches[approach] = _Approach("proba", scores[approach])
+
+    forced = preventive.astype(bool)
+    approaches[XGB_FREE] = _Approach("proba", scores[XGB], constrained=False)
+    approaches[HYBRID] = _Approach("proba", scores[XGB], forced_alert=forced)
+    approaches[HYBRID_FREE] = _Approach(
+        "proba", scores[XGB], forced_alert=forced, constrained=False
+    )
+    return y_val, approaches
 
 
 def _evaluate_approaches(
     y_val: pd.Series,
-    outputs: dict[str, tuple[str, np.ndarray]],
+    approaches: dict[str, _Approach],
     cost_fn: float,
     cost_fp: float,
     min_precision: float,
 ) -> pd.DataFrame:
+    """Une ligne par approche. precision_ok compare toujours à min_precision (garde-fou métier),
+    y compris pour les règles et les variantes optimisées sans contrainte."""
     rows = []
-    for approach, (kind, values) in outputs.items():
-        if kind == "proba":
-            result = find_best_threshold(y_val, values, cost_fn, cost_fp, min_precision)
+    for approach, spec in approaches.items():
+        if spec.kind == "proba":
+            result = find_best_threshold(
+                y_val,
+                spec.values,
+                cost_fn,
+                cost_fp,
+                min_precision if spec.constrained else 0.0,
+                spec.forced_alert,
+            )
+            if not spec.constrained:
+                result["constraint_satisfied"] = np.nan  # contrainte non appliquée
         else:
             # Sorties 0/1 : alerte quand la sortie vaut 1 (pas de seuil à choisir).
             result = {
                 "threshold": np.nan,
-                **cost_at_threshold(y_val, values, 1, cost_fn, cost_fp),
+                **cost_at_threshold(y_val, spec.values, 1, cost_fn, cost_fp),
                 "constraint_satisfied": np.nan,
             }
         rows.append(
@@ -152,6 +210,7 @@ def _evaluate_approaches(
                 "false_alarms": result["fp"],
                 "missed": result["fn"],
                 "precision": result["precision"],
+                "precision_ok": bool(result["precision"] >= min_precision),
                 "recall": result["recall"],
                 "total_cost_eur": result["total_cost_eur"],
                 "constraint_satisfied": result["constraint_satisfied"],
@@ -170,7 +229,7 @@ def _cell(df: pd.DataFrame, approach: str, column: str) -> Any:
 
 
 def compare_on_validation(cfg: Config) -> pd.DataFrame:
-    """Une ligne par approche (B0, B1, B2, B3, XGBoost) aux coûts de la config."""
+    """Une ligne par approche (B0 à B3, XGBoost, hybride, variantes sans contrainte)."""
     y_val, outputs = _load_validation_outputs(cfg)
     d = cfg.decision
     return _evaluate_approaches(
@@ -196,6 +255,8 @@ def sensitivity_analysis(cfg: Config, ratios: Iterable[float] = (5, 10, 20, 50))
         "cost_fn_eur",
         "approach",
         "threshold",
+        "precision",
+        "precision_ok",
         "total_cost_eur",
         "gain_vs_b0_eur",
         "gain_vs_b0_pct",
