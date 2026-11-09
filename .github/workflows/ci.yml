@@ -25,3 +25,99 @@ jobs:
 
       - name: Test
         run: uv run pytest
+
+  docker:
+    # Image construite et testée seulement si lint, mypy et tests passent.
+    needs: lint-and-test
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        # bash explicite : active « -eo pipefail » (arrêt à la première erreur, y compris dans un pipe).
+        shell: bash
+    steps:
+      # Récupère le code et les artefacts figés versionnés (modèle, seuils, empreinte, résultats).
+      - uses: actions/checkout@v4
+
+      # Active Buildx, nécessaire au cache de couches de GitHub Actions.
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      # Construit l'image, la charge dans le démon local (load) sans la publier (push: false) ;
+      # le cache gha réutilise les couches inchangées (dépendances) d'un run à l'autre.
+      - name: Build image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          load: true
+          push: false
+          tags: pdm-api:ci
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      # Démarre l'API en arrière-plan, port 8000 publié sur le runner.
+      - name: Start container
+        run: docker run -d --name pdm -p 8000:8000 pdm-api:ci
+
+      # Attend le statut « healthy » du HEALTHCHECK de l'image (120 s max) ;
+      # échoue tout de suite si le conteneur s'arrête ou devient « unhealthy ».
+      - name: Wait until healthy
+        run: |
+          for elapsed in $(seq 0 2 120); do
+            if [ "$(docker inspect --format '{{.State.Running}}' pdm)" != "true" ]; then
+              echo "Le conteneur s'est arrêté."; exit 1
+            fi
+            status=$(docker inspect --format '{{.State.Health.Status}}' pdm)
+            echo "${elapsed}s : ${status}"
+            [ "$status" = "healthy" ] && exit 0
+            [ "$status" = "unhealthy" ] && { echo "Conteneur unhealthy."; exit 1; }
+            sleep 2
+          done
+          echo "Conteneur toujours pas healthy après 120 s."; exit 1
+
+      # /health doit répondre « ok » avec EXACTEMENT l'empreinte du modèle versionnée.
+      - name: Check /health and model fingerprint
+        run: |
+          expected=$(jq -r '.sha256' artifacts/model_fingerprint.json)
+          body=$(curl -fsS http://localhost:8000/health)
+          echo "$body" | jq .
+          status=$(echo "$body" | jq -r '.status')
+          actual=$(echo "$body" | jq -r '.model_version.model_sha256')
+          [ "$status" = "ok" ] || { echo "status attendu ok, obtenu $status"; exit 1; }
+          [ "$actual" = "$expected" ] || {
+            echo "Empreinte différente : attendu $expected, obtenu $actual"; exit 1;
+          }
+
+      # Machine en surcharge (type L, couple 65 Nm, usure 210 min) : décision CRITIQUE attendue.
+      - name: Check /predict on an overloaded machine
+        run: |
+          body=$(curl -fsS -X POST http://localhost:8000/predict \
+            -H "Content-Type: application/json" \
+            -d '{"product_type": "L", "air_temperature_k": 300, "process_temperature_k": 310,
+                 "rotational_speed_rpm": 1400, "torque_nm": 65, "tool_wear_min": 210}')
+          echo "$body" | jq .
+          decision=$(echo "$body" | jq -r '.decision')
+          [ "$decision" = "CRITIQUE" ] || { echo "CRITIQUE attendu, obtenu $decision"; exit 1; }
+
+      # Couple négatif (hors bornes physiques) : l'API doit refuser avec un code 422.
+      - name: Check /predict rejects an out-of-bounds measure
+        run: |
+          code=$(curl -sS -o response.json -w '%{http_code}' -X POST http://localhost:8000/predict \
+            -H "Content-Type: application/json" \
+            -d '{"product_type": "L", "air_temperature_k": 300, "process_temperature_k": 310,
+                 "rotational_speed_rpm": 1400, "torque_nm": -10, "tool_wear_min": 210}')
+          jq . response.json
+          [ "$code" = "422" ] || { echo "HTTP 422 attendu, obtenu $code"; exit 1; }
+
+      # Taille de l'image, visible dans le journal du job.
+      - name: Show image size
+        run: docker image ls pdm-api:ci
+
+      # En cas d'échec : journaux du serveur pour le diagnostic.
+      - name: Container logs on failure
+        if: failure()
+        run: docker logs pdm || true
+
+      # Toujours : suppression du conteneur (même si une étape a échoué).
+      - name: Remove container
+        if: always()
+        run: docker rm -f pdm || true
