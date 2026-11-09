@@ -18,7 +18,6 @@ from predictive_maintenance_iot.models.baseline import build_logistic_baseline
 from predictive_maintenance_iot.models.evaluate import (
     B0,
     HYBRID,
-    HYBRID_FREE,
     SCORED_MODELS,
     XGB,
     XGB_FREE,
@@ -30,7 +29,8 @@ from predictive_maintenance_iot.models.evaluate import (
 from predictive_maintenance_iot.models.train import build_xgb_pipeline
 
 CONFIG_PATH = Path(__file__).resolve().parents[1] / "config" / "config.yaml"
-N_APPROACHES = 8  # B0-B3, XGBoost (avec/sans contrainte), hybride (avec/sans contrainte)
+N_APPROACHES = 7  # B0-B3, XGBoost (avec/sans contrainte), hybride
+HYBRID_FREE_LABEL = "Hybride XGBoost + preventif (sans contrainte)"  # ligne supprimée
 
 
 # --- cost_at_threshold ------------------------------------------------------------------
@@ -240,16 +240,31 @@ def test_main_never_reads_test_csv(cfg: Config, monkeypatch: pytest.MonkeyPatch)
     assert (cfg.paths.reports_dir / "sensitivity.csv").is_file()
 
     thresholds = json.loads((cfg.paths.artifacts_dir / "thresholds.json").read_text("utf-8"))
-    assert set(thresholds["thresholds"]) == {"xgboost", "logistic"}
+    assert thresholds["frozen_for_test"] is True
+    assert thresholds["primary_approach"] == "hybrid"
+    assert thresholds["secondary_approach"] == "xgboost"
+    assert set(thresholds["thresholds"]) == {"hybrid", "xgboost"}
     assert thresholds["cost_missed_failure_eur"] == cfg.decision.cost_missed_failure_eur
+    assert thresholds["preventive_tool_wear_min"] == cfg.baselines.preventive_tool_wear_min
     assert {"generated_at", "git_commit"} <= set(thresholds)
+    for entry in thresholds["thresholds"].values():
+        assert 0.0 <= entry["threshold"] <= 1.0
+        assert set(entry["thresholds_by_ratio"]) == {"5", "10", "20", "50"}
+        # Le ratio de la config (3000 / 150 = 20) donne le même seuil que la comparaison.
+        assert entry["thresholds_by_ratio"]["20"] == entry["threshold"]
 
     client = MlflowClient(tracking_uri=cfg.mlflow.tracking_uri)
     experiment = client.get_experiment_by_name(cfg.mlflow.experiment_name)
     assert experiment is not None
     run = client.search_runs([experiment.experiment_id])[0]
     assert run.info.run_name == "evaluation-validation"
-    assert {"xgb_val_cost_eur", "xgb_threshold", "b2_val_cost_eur"} <= set(run.data.metrics)
+    assert {
+        "xgb_val_cost_eur",
+        "xgb_threshold",
+        "hybrid_val_cost_eur",
+        "hybrid_threshold",
+        "b2_val_cost_eur",
+    } <= set(run.data.metrics)
     artifacts = {a.path for a in client.list_artifacts(run.info.run_id)}
     assert artifacts == {"validation_comparison.csv", "sensitivity.csv", "thresholds.json"}
 
@@ -261,28 +276,93 @@ def test_new_approaches_on_validation(cfg: Config) -> None:
     assert worn > 0  # le jeu synthétique contient bien des outils usés
 
     # L'hybride alerte au moins sur toutes les lignes à usure >= seuil, quelle que soit la proba.
-    for approach in (HYBRID, HYBRID_FREE):
-        assert df.loc[approach, "detected"] + df.loc[approach, "false_alarms"] >= worn
+    assert df.loc[HYBRID, "detected"] + df.loc[HYBRID, "false_alarms"] >= worn
+    assert HYBRID_FREE_LABEL not in df.index  # variante supprimée (redondante)
 
     # Sans contrainte de précision, le coût ne peut qu'être inférieur ou égal.
     assert df.loc[XGB_FREE, "total_cost_eur"] <= df.loc[XGB, "total_cost_eur"]
-    assert df.loc[HYBRID_FREE, "total_cost_eur"] <= df.loc[HYBRID, "total_cost_eur"]
 
 
 def test_precision_ok_reported_for_all_approaches(cfg: Config) -> None:
     df = compare_on_validation(cfg)
 
     assert df["precision_ok"].notna().all()
-    expected = df["precision"] >= cfg.decision.min_precision
+    expected = df["model_precision"] >= cfg.decision.min_precision
     assert (df["precision_ok"] == expected).all()
+    # Hors hybride, la précision du modèle est la précision globale.
+    others = df.drop(index=HYBRID)
+    assert (others["model_precision"] == others["precision"]).all()
     assert not df.loc[B0, "precision_ok"]  # aucune alerte : précision 0 par convention
 
 
 def test_sensitivity_includes_new_approaches(cfg: Config) -> None:
     df = sensitivity_analysis(cfg, ratios=(5, 50))
 
-    assert {XGB_FREE, HYBRID, HYBRID_FREE} <= set(df["approach"])
+    assert {XGB_FREE, HYBRID} <= set(df["approach"])
+    assert HYBRID_FREE_LABEL not in set(df["approach"])
     for _, group in df.groupby("ratio_fn_fp"):
         cost = group.set_index("approach")["total_cost_eur"]
         assert cost[XGB_FREE] <= cost[XGB]
-        assert cost[HYBRID_FREE] <= cost[HYBRID]
+
+
+# --- Contrainte de précision de l'hybride -----------------------------------------------
+
+
+def test_hybrid_constraint_ignores_planned_replacements() -> None:
+    # 5 remplacements préventifs sur des outils sains (planifiés, pas des fausses alertes du
+    # modèle) + 1 alerte XGBoost juste. Précision globale 1/6 < 0,5, mais précision du
+    # modèle 1/1 : le seuil 0,9 doit rester admissible.
+    y = [0, 0, 0, 0, 0, 1, 0]
+    p = [0.0, 0.0, 0.0, 0.0, 0.0, 0.9, 0.1]
+    forced = [True, True, True, True, True, False, False]
+
+    best = find_best_threshold(
+        y, p, cost_fn=3000, cost_fp=150, min_precision=0.5, forced_alert=forced
+    )
+
+    assert best["constraint_satisfied"] is True
+    assert best["threshold"] == pytest.approx(0.9)
+    assert best["model_precision"] == pytest.approx(1.0)
+    assert best["precision"] == pytest.approx(1 / 6)
+
+
+def test_hybrid_constraint_still_rejects_bad_model_alerts() -> None:
+    # XGBoost n'alerte que sur des lignes saines : aucune précision modèle >= 0,5 possible.
+    y = [1, 0, 0]
+    p = [0.0, 0.8, 0.7]
+    forced = [True, False, False]
+
+    best = find_best_threshold(
+        y, p, cost_fn=3000, cost_fp=150, min_precision=0.5, forced_alert=forced
+    )
+    assert best["constraint_satisfied"] is False
+
+
+# --- Réoptimisation du seuil par ratio (sensibilité) ------------------------------------
+
+
+def test_hybrid_threshold_reoptimised_for_each_ratio(monkeypatch: pytest.MonkeyPatch) -> None:
+    # Ligne 0 : remplacement préventif (panne, proba faible).
+    # Ligne 1 : panne nette (0,9). Lignes 2 à 12 : 1 panne noyée parmi 10 lignes saines (0,4).
+    # cost_fp = 150 : rattraper la panne à 0,4 coûte 10 × 150 = 1 500 €.
+    #   ratio 5  : la rater coûte 750 €   → mieux vaut seuil 0,9 ;
+    #   ratio 50 : la rater coûte 7 500 € → mieux vaut seuil 0,4.
+    y = pd.Series([1, 1, 1] + [0] * 10)
+    p = np.array([0.05, 0.9] + [0.4] * 11)
+    forced = np.array([True] + [False] * 12)
+    approaches = {
+        B0: evaluate_module._Approach("binary", np.zeros(len(y), dtype=int)),
+        HYBRID: evaluate_module._Approach("proba", p, forced_alert=forced),
+    }
+    monkeypatch.setattr(evaluate_module, "_load_validation_outputs", lambda cfg: (y, approaches))
+    base = load_config(CONFIG_PATH)
+    # Contrainte neutralisée : on isole l'effet du ratio de coûts sur le seuil.
+    cfg = base.model_copy(
+        update={"decision": base.decision.model_copy(update={"min_precision": 0.0})}
+    )
+
+    df = sensitivity_analysis(cfg, ratios=(5, 50))
+    thresholds = df[df["approach"] == HYBRID].set_index("ratio_fn_fp")["threshold"]
+
+    assert thresholds[5] == pytest.approx(0.9)
+    assert thresholds[50] == pytest.approx(0.4)

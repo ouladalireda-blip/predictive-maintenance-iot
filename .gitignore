@@ -56,6 +56,7 @@ mlartifacts/
 # Rapports régénérables (aussi archivés dans MLflow)
 reports/
 
-# Model artifacts
-artifacts/
+# Model artifacts (seul le fichier de seuils figés est versionné)
 *.joblib
+artifacts/*
+!artifacts/thresholds.json

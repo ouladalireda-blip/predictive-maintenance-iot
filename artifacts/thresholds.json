@@ -1,0 +1,36 @@
+{
+  "frozen_for_test": true,
+  "primary_approach": "hybrid",
+  "secondary_approach": "xgboost",
+  "generated_at": "2026-11-09T13:48:11+00:00",
+  "git_commit": "c496812e7f8d46693450aafd0a866bc7d3fc4177",
+  "cost_missed_failure_eur": 3000.0,
+  "cost_false_alarm_eur": 150.0,
+  "config_ratio_fn_fp": 20.0,
+  "min_precision": 0.5,
+  "preventive_tool_wear_min": 200.0,
+  "thresholds": {
+    "hybrid": {
+      "threshold": 0.41259607672691345,
+      "constraint_satisfied": true,
+      "validation_cost_eur": 22200.0,
+      "thresholds_by_ratio": {
+        "5": 0.41259607672691345,
+        "10": 0.41259607672691345,
+        "20": 0.41259607672691345,
+        "50": 0.41259607672691345
+      }
+    },
+    "xgboost": {
+      "threshold": 0.41259607672691345,
+      "constraint_satisfied": true,
+      "validation_cost_eur": 32700.0,
+      "thresholds_by_ratio": {
+        "5": 0.788364827632904,
+        "10": 0.41259607672691345,
+        "20": 0.41259607672691345,
+        "50": 0.41259607672691345
+      }
+    }
+  }
+}
