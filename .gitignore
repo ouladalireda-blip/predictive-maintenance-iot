@@ -65,3 +65,4 @@ artifacts/*
 
 # Journal des inférences de l'API
 data/inference_log.db
+!artifacts/xgboost.joblib
