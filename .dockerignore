@@ -1,0 +1,23 @@
+# Environnements et outils locaux
+.venv
+.git
+__pycache__
+.pytest_cache
+.mypy_cache
+.ruff_cache
+
+# Données et sorties régénérables (jamais dans l'image)
+data/
+mlruns/
+mlartifacts/
+mlflow.db
+reports/
+
+# Inutile à l'exécution de l'API
+tests/
+notebooks/
+
+# Secrets éventuels
+.env
+
+# NB : artifacts/ n'est PAS exclu : le Dockerfile en copie les 4 fichiers figés.

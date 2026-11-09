@@ -1,0 +1,14 @@
+services:
+  api:
+    build: .
+    image: predictive-maintenance-iot-api:latest
+    ports:
+      - "8000:8000"
+    volumes:
+      # Journal SQLite des inférences (api.inference_log_path = data/inference_log.db),
+      # conservé entre les redémarrages et les reconstructions de l'image.
+      - inference-log:/app/data
+    restart: unless-stopped
+
+volumes:
+  inference-log:

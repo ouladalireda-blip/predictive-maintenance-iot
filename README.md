@@ -208,6 +208,48 @@ L'examen final (`models.final_test`) a déjà été passé ; il refuse de se rel
 
 ---
 
+## Lancer avec Docker
+
+L'image embarque l'API et les **artefacts figés** (modèle, seuils, empreinte, résultats du test) :
+aucune donnée ni entraînement n'est nécessaire. Au démarrage, l'API vérifie l'empreinte du modèle.
+
+```powershell
+# Construire l'image
+docker build -t predictive-maintenance-iot-api .
+
+# Lancer (le volume conserve le journal des inférences entre deux lancements)
+docker run -d --name pm-api -p 8000:8000 -v pm-inference-log:/app/data predictive-maintenance-iot-api
+
+# Ou, de façon équivalente, avec Docker Compose
+docker compose up -d --build
+```
+
+Vérifier que tout fonctionne :
+
+```powershell
+# Statut du conteneur : la colonne STATUS doit afficher « (healthy) » après ~1 minute
+docker ps
+
+# Santé de l'API : status "ok", model_loaded true
+Invoke-RestMethod http://localhost:8000/health
+
+# Une prédiction
+$mesure = @{ product_type = "M"; air_temperature_k = 298.9; process_temperature_k = 309.1;
+             rotational_speed_rpm = 1408; torque_nm = 46.3; tool_wear_min = 120 } | ConvertTo-Json
+Invoke-RestMethod http://localhost:8000/predict -Method Post -ContentType "application/json" -Body $mesure
+
+# Documentation interactive : http://localhost:8000/docs (http://localhost:8000 y redirige)
+
+# Journaux du serveur, puis arrêt
+docker logs pm-api            # ou : docker compose logs api
+docker stop pm-api            # ou : docker compose down (le volume du journal est conservé)
+```
+
+Sous Linux ou macOS : `curl http://localhost:8000/health`, et pour une prédiction
+`curl -X POST http://localhost:8000/predict -H "Content-Type: application/json" -d '{...}'`.
+
+---
+
 ## Structure
 
 ```text
