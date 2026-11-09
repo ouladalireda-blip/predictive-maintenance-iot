@@ -7,8 +7,6 @@ Le jeu de test n'est jamais lu ici : il est réservé à l'évaluation finale (e
 from __future__ import annotations
 
 import logging
-import subprocess
-from pathlib import Path
 from typing import Any
 
 import joblib
@@ -28,6 +26,7 @@ from predictive_maintenance_iot.features.engineering import (
     build_preprocessor,
 )
 from predictive_maintenance_iot.models.baseline import build_logistic_baseline
+from predictive_maintenance_iot.utils import git_commit
 
 logger = logging.getLogger(__name__)
 
@@ -80,22 +79,6 @@ def build_xgb_pipeline(cfg: Config, y_train: pd.Series | np.ndarray) -> Pipeline
     )
 
 
-def _git_commit() -> str:
-    """Hash du commit du code (exécuté dans le dossier du module, pas le dossier courant)."""
-    try:
-        result = subprocess.run(
-            ["git", "rev-parse", "HEAD"],
-            capture_output=True,
-            text=True,
-            check=True,
-            timeout=5,
-            cwd=Path(__file__).resolve().parent,
-        )
-    except (OSError, subprocess.SubprocessError):
-        return "unknown"
-    return result.stdout.strip() or "unknown"
-
-
 def _loggable_params(estimator: Any) -> dict[str, Any]:
     """Hyperparamètres scalaires non nuls de l'estimateur final (pour mlflow.log_params)."""
     return {
@@ -143,7 +126,7 @@ def train_model(
             }
         )
         mlflow.log_metrics(metrics)
-        mlflow.set_tags({"model_type": type(estimator).__name__, "git_commit": _git_commit()})
+        mlflow.set_tags({"model_type": type(estimator).__name__, "git_commit": git_commit()})
 
         input_example = X_train.head(2)
         signature = infer_signature(input_example, pipeline.predict_proba(input_example))

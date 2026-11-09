@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import json
-import re
 from pathlib import Path
 from typing import Any
 
@@ -20,6 +19,7 @@ from predictive_maintenance_iot.models.train import (
     compute_scale_pos_weight,
     train_model,
 )
+from predictive_maintenance_iot.utils import git_commit
 
 CONFIG_PATH = Path(__file__).resolve().parents[1] / "config" / "config.yaml"
 N_ESTIMATORS_TEST = 20  # petit modèle : les tests vérifient la mécanique, pas la performance
@@ -154,8 +154,7 @@ def test_train_model_logs_run_and_saves_joblib(
     assert 0.0 <= metrics["roc_auc"] <= 1.0
 
     assert run.data.tags["model_type"] == "XGBClassifier"
-    # Hash complet du dépôt (même si le test tourne dans tmp_path), ou "unknown" sans git.
-    assert re.fullmatch(r"[0-9a-f]{40}|unknown", run.data.tags["git_commit"])
+    assert run.data.tags["git_commit"] == git_commit()  # format vérifié dans test_utils.py
     artifacts = {a.path for a in client.list_artifacts(run.info.run_id)}
     assert "feature_importance_gain.json" in artifacts
     importance = json.loads(

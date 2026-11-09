@@ -8,6 +8,7 @@ paths:
   raw_data: data/raw/ai4i2020.csv     # donnée brute, jamais modifiée
   processed_dir: data/processed       # sorties régénérables (train/val/test)
   artifacts_dir: artifacts            # modèle exporté localement (ignoré par git)
+  reports_dir: reports                # tableaux de comparaison régénérables (ignoré par git)
 
 columns:
   target: "Machine failure"

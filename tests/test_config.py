@@ -49,6 +49,7 @@ def test_load_real_config() -> None:
     assert config.columns.row_id == "UDI"
     assert config.columns.product_type.column == "Type"
     assert config.columns.product_type.allowed == ["L", "M", "H"]
+    assert config.paths.reports_dir == Path("reports")
     assert config.baselines.preventive_tool_wear_min == 200
     assert config.baselines.expert_rules.osf_strain_max_min_nm == {
         "L": 11000,

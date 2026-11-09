@@ -53,6 +53,9 @@ mlflow.db
 mlruns/
 mlartifacts/
 
+# Rapports régénérables (aussi archivés dans MLflow)
+reports/
+
 # Model artifacts
 artifacts/
 *.joblib

@@ -29,6 +29,7 @@ class PathsConfig(_Section):
     raw_data: Path
     processed_dir: Path
     artifacts_dir: Path
+    reports_dir: Path
 
 
 class ProductTypeConfig(_Section):
