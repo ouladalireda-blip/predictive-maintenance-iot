@@ -20,5 +20,8 @@ jobs:
       - name: Lint
         run: uv run ruff check .
 
+      - name: Mypy
+        run: uv run mypy src
+
       - name: Test
         run: uv run pytest

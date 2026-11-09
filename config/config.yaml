@@ -1,1 +1,56 @@
-# Configuration centrale du projet (chemins, paramètres de données, hyperparamètres, MLflow, API).
+# Configuration centrale du projet de maintenance prédictive.
+# Règle : aucune valeur de ce fichier ne doit être écrite en dur dans le code.
+
+project:
+  random_seed: 42            # même graine partout : mêmes découpages et mêmes résultats à chaque exécution
+
+paths:
+  raw_data: data/raw/ai4i2020.csv     # donnée brute, jamais modifiée
+  processed_dir: data/processed       # sorties régénérables (train/val/test)
+  artifacts_dir: artifacts            # modèle exporté localement (ignoré par git)
+
+columns:
+  target: "Machine failure"
+  ids: ["UDI", "Product ID"]                   # identifiants : aucun pouvoir prédictif réel, à exclure
+  leakage: ["TWF", "HDF", "PWF", "OSF", "RNF"] # décrivent la panne elle-même : interdits comme variables
+  categorical: ["Type"]                        # qualité produit L / M / H
+  numeric:
+    - "Air temperature [K]"
+    - "Process temperature [K]"
+    - "Rotational speed [rpm]"
+    - "Torque [Nm]"
+    - "Tool wear [min]"
+
+# Bornes de PLAUSIBILITÉ PHYSIQUE, pas le min/max observé dans les données.
+# Une valeur hors bornes = capteur défaillant ou erreur de saisie → rejet + alerte qualité.
+# En entreprise, ces bornes viennent de la fiche technique machine / du service maintenance.
+sensor_bounds:
+  "Air temperature [K]":     {min: 280.0, max: 320.0}  # 7 °C à 47 °C : atelier
+  "Process temperature [K]": {min: 280.0, max: 340.0}
+  "Rotational speed [rpm]":  {min: 0.0,   max: 4000.0}
+  "Torque [Nm]":             {min: 0.0,   max: 120.0}
+  "Tool wear [min]":         {min: 0.0,   max: 400.0}
+
+split:
+  test_size: 0.15            # test : utilisé UNE seule fois, à la toute fin
+  val_size: 0.15             # validation : sert à choisir le seuil de décision
+  stratify: true             # conserve ~3,4 % de pannes dans chaque jeu
+
+model:
+  xgboost:
+    n_estimators: 300
+    max_depth: 4             # arbres peu profonds : moins de sur-apprentissage sur 339 pannes
+    learning_rate: 0.05
+    subsample: 0.8
+    colsample_bytree: 0.8
+    scale_pos_weight: auto   # "auto" = calculé sur le train (nb normaux / nb pannes ≈ 28)
+
+# Choix du seuil d'alerte par le coût métier.
+# ⚠ ESTIMATIONS ILLUSTRATIVES — aucun chiffre réel fourni par l'entreprise (nov. 2026).
+decision:
+  cost_missed_failure_eur: 3000  # ESTIMÉ : 2 h d'arrêt × 500 €/h + casse 1 500 € + rebuts 500 €
+  cost_false_alarm_eur: 150      # ESTIMÉ : inspection 45 min × 50 €/h + micro-arrêt 15 min × 500 €/h
+  min_precision: 0.5             # garde-fou : au moins 1 alerte sur 2 doit être une vraie panne
+mlflow:
+  tracking_uri: sqlite:///mlflow.db   # suivi local dans un fichier, sans serveur à installer
+  experiment_name: predictive-maintenance-ai4i

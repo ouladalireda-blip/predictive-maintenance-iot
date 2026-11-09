@@ -1,4 +1,3 @@
-"""Téléchargement des données brutes vers data/raw/."""
 """Contrôle du jeu de données brut AI4I 2020, téléchargé manuellement depuis l'UCI."""
 
 import logging
@@ -10,9 +9,20 @@ logger = logging.getLogger(__name__)
 
 EXPECTED_ROWS = 10_000
 EXPECTED_COLUMNS = [
-    "UDI", "Product ID", "Type", "Air temperature [K]", "Process temperature [K]",
-    "Rotational speed [rpm]", "Torque [Nm]", "Tool wear [min]", "Machine failure",
-    "TWF", "HDF", "PWF", "OSF", "RNF",
+    "UDI",
+    "Product ID",
+    "Type",
+    "Air temperature [K]",
+    "Process temperature [K]",
+    "Rotational speed [rpm]",
+    "Torque [Nm]",
+    "Tool wear [min]",
+    "Machine failure",
+    "TWF",
+    "HDF",
+    "PWF",
+    "OSF",
+    "RNF",
 ]
 
 
