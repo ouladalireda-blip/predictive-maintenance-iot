@@ -1,0 +1,52 @@
+# Image de l'interface technicien (Streamlit), simple client HTTP de l'API.
+
+# Même image de base que l'API.
+FROM python:3.12-slim
+
+# Binaire uv, même version épinglée que pour l'API.
+COPY --from=ghcr.io/astral-sh/uv:0.13.7 /uv /uvx /bin/
+
+# Bytecode précompilé, copie des fichiers, Python de l'image uniquement, logs non tamponnés.
+ENV UV_COMPILE_BYTECODE=1 \
+    UV_LINK_MODE=copy \
+    UV_PYTHON_DOWNLOADS=never \
+    PYTHONUNBUFFERED=1
+
+# Dossier de travail de l'application.
+WORKDIR /app
+
+# Manifestes de dépendances seuls, pour mettre en cache la couche d'installation.
+COPY pyproject.toml uv.lock ./
+
+# Groupe « ui » UNIQUEMENT (streamlit, httpx, pandas, altair) : ni modèle, ni XGBoost, ni projet.
+RUN uv sync --frozen --only-group ui
+
+# Le script de l'interface : seul fichier de code nécessaire.
+COPY app_streamlit.py ./
+
+# Thème et barre d'outils de l'interface (lus depuis le dossier de travail).
+COPY .streamlit/ ./.streamlit/
+
+# Utilisateur non-root (UID fixe) avec un dossier personnel (Streamlit y écrit sa config).
+RUN groupadd --system --gid 10001 app \
+    && useradd --system --uid 10001 --gid app --create-home --home-dir /home/app app
+
+# Exécutables du venv en priorité ; Streamlit sans navigateur ni statistiques d'usage ;
+# URL de l'API par défaut (surchargée par docker-compose : http://api:8000).
+ENV PATH="/app/.venv/bin:$PATH" \
+    STREAMLIT_SERVER_HEADLESS=true \
+    STREAMLIT_BROWSER_GATHER_USAGE_STATS=false \
+    API_URL=http://127.0.0.1:8000
+
+# Toutes les commandes suivantes et le conteneur tournent sous cet utilisateur.
+USER app
+
+# Port de l'interface Streamlit.
+EXPOSE 8501
+
+# Santé : endpoint interne de Streamlit (urllib, pas de curl dans slim).
+HEALTHCHECK --interval=30s --timeout=5s --start-period=20s --retries=3 \
+    CMD ["python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8501/_stcore/health', timeout=4)"]
+
+# Serveur Streamlit accessible depuis l'hôte.
+CMD ["streamlit", "run", "app_streamlit.py", "--server.address=0.0.0.0", "--server.port=8501"]

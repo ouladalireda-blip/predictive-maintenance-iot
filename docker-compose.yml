@@ -10,5 +10,21 @@ services:
       - inference-log:/app/data
     restart: unless-stopped
 
+  ui:
+    build:
+      context: .
+      dockerfile: Dockerfile.ui
+    image: predictive-maintenance-iot-ui:latest
+    ports:
+      - "8501:8501"
+    environment:
+      # Nom du service sur le réseau interne de Compose.
+      API_URL: http://api:8000
+    depends_on:
+      api:
+        # L'interface ne démarre qu'une fois l'API « healthy » (modèle chargé et vérifié).
+        condition: service_healthy
+    restart: unless-stopped
+
 volumes:
   inference-log:

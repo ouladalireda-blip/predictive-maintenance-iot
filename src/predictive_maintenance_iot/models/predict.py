@@ -27,6 +27,7 @@ from sklearn.pipeline import Pipeline
 from predictive_maintenance_iot.config import ActionsConfig, Config
 from predictive_maintenance_iot.data.validation import COLUMN_MAP, SensorPayload
 from predictive_maintenance_iot.features.engineering import (
+    NEW_FEATURES,
     POWER,
     PRODUCT_TYPE_FEATURE,
     STRAIN,
@@ -105,6 +106,7 @@ class Prediction:
     triggered_by: TriggeredBy
     top_factors: list[TopFactor]
     recommended_action: str | None
+    derived: dict[str, float]  # variables physiques calculées par le pipeline, arrondies
 
 
 def decide(model_alert: bool, preventive_alert: bool) -> tuple[Decision, TriggeredBy]:
@@ -276,6 +278,10 @@ class Predictor:
                     triggered_by=triggered,
                     top_factors=factors,
                     recommended_action=self._action(decision, factors),
+                    derived={
+                        name: round(float(features[name].iloc[i]), DERIVED_DECIMALS)
+                        for name in NEW_FEATURES
+                    },
                 )
             )
         return predictions

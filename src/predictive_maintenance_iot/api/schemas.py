@@ -53,6 +53,14 @@ class ModelVersionSchema(BaseModel):
     git_commit: str = Field(description="Commit au moment du gel des seuils")
 
 
+class DerivedSchema(BaseModel):
+    """Variables physiques calculées par le pipeline (le client ne recalcule rien)."""
+
+    temp_diff_k: float = Field(description="Écart process − air (K)")
+    power_w: float = Field(description="Puissance mécanique (W)")
+    strain_min_nm: float = Field(description="Usure × couple (min·Nm)")
+
+
 class PredictResponse(BaseModel):
     request_id: str
     timestamp: datetime
@@ -62,6 +70,7 @@ class PredictResponse(BaseModel):
     triggered_by: TriggeredByLiteral
     top_factors: list[TopFactorSchema]
     recommended_action: str | None
+    derived: DerivedSchema
     model_version: ModelVersionSchema
 
 

@@ -21,3 +21,5 @@ notebooks/
 .env
 
 # NB : artifacts/ n'est PAS exclu : le Dockerfile en copie les 4 fichiers figés.
+# Ce fichier sert aux deux images (Dockerfile et Dockerfile.ui) : chacune ne copie
+# que ce dont elle a besoin (app_streamlit.py n'entre pas dans l'image de l'API).

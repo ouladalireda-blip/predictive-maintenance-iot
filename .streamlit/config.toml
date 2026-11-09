@@ -1,0 +1,18 @@
+# Configuration de l'interface technicien (lue au démarrage par `streamlit run`).
+
+[client]
+# Barre d'outils réduite : masque « Deploy » et les menus de développement.
+toolbarMode = "viewer"
+
+[theme]
+# Thème clair sobre. Couleur principale gris anthracite (et non rouge) : un curseur
+# ou un bouton actif ne doit pas suggérer une alerte. Les couleurs d'état (vert, orange,
+# rouge) sont réservées au verdict.
+base = "light"
+primaryColor = "#3C4043"
+backgroundColor = "#FFFFFF"
+secondaryBackgroundColor = "#F1F3F4"
+textColor = "#202124"
+
+[browser]
+gatherUsageStats = false

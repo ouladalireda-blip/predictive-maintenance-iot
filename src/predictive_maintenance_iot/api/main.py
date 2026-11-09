@@ -29,6 +29,7 @@ from pydantic import ValidationError
 from predictive_maintenance_iot.api.schemas import (
     BatchRequest,
     BatchResponse,
+    DerivedSchema,
     HealthResponse,
     ModelInfoResponse,
     ModelVersionSchema,
@@ -156,6 +157,7 @@ def _respond(
             triggered_by=prediction.triggered_by.value,
             top_factors=[TopFactorSchema(**asdict(f)) for f in prediction.top_factors],
             recommended_action=prediction.recommended_action,
+            derived=DerivedSchema(**prediction.derived),
             model_version=version,
         )
         responses.append(response)

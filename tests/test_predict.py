@@ -301,3 +301,12 @@ def test_batch_matches_single_predictions(cfg: Config, predictor: Predictor) -> 
     batch = predictor.predict_batch(payloads)
     assert batch == [predictor.predict(p) for p in payloads]
     assert predictor.predict_batch([]) == []
+
+
+def test_derived_values_come_from_pipeline(cfg: Config, predictor: Predictor) -> None:
+    derived = predictor.predict(validate_payload(HIGH_RISK, cfg)).derived
+
+    assert set(derived) == {"temp_diff_k", "power_w", "strain_min_nm"}
+    assert derived["temp_diff_k"] == pytest.approx(310.0 - 300.0)
+    assert derived["power_w"] == round(115.0 * 1500.0 * 2 * np.pi / 60, 2)
+    assert derived["strain_min_nm"] == pytest.approx(50.0 * 115.0)

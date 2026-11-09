@@ -85,8 +85,12 @@ def test_predict_returns_all_fields(client: TestClient) -> None:
         "triggered_by",
         "top_factors",
         "recommended_action",
+        "derived",
         "model_version",
     }
+    assert body["derived"]["temp_diff_k"] == 10.0
+    assert body["derived"]["strain_min_nm"] == 50.0 * 115.0
+    assert set(body["derived"]) == {"temp_diff_k", "power_w", "strain_min_nm"}
     assert body["decision"] == "CRITIQUE"
     assert body["recommended_action"]
     assert body["failure_probability"] >= body["threshold"]
