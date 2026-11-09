@@ -45,7 +45,7 @@ line-length = 100
 select = ["E", "W", "F", "I", "UP", "B"]
 
 [[tool.mypy.overrides]]
-module = ["sklearn.*"]
+module = ["sklearn.*", "joblib.*"]
 ignore_missing_imports = true
 
 [tool.pytest.ini_options]

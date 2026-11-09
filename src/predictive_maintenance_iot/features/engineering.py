@@ -38,6 +38,9 @@ POWER = "power_w"
 STRAIN = "strain_min_nm"
 NEW_FEATURES: tuple[str, str, str] = (TEMP_DIFF, POWER, STRAIN)
 
+# Nom de sortie de la variable type produit (identique au champ de l'API, SensorPayload).
+PRODUCT_TYPE_FEATURE = "product_type"
+
 RPM_TO_RAD_PER_S = 2 * math.pi / 60
 
 
@@ -117,14 +120,45 @@ class PhysicalFeatures(BaseEstimator, TransformerMixin):
         return np.asarray([*input_features, *NEW_FEATURES], dtype=object)
 
 
+class RenameColumns(BaseEstimator, TransformerMixin):
+    """Renomme les colonnes selon `mapping` ; les colonnes absentes du mapping sont conservées.
+
+    Sert à sortir des noms snake_case sans caractères spéciaux (XGBoost refuse « [ ] < »,
+    et ces noms sont ceux de l'API et de SHAP).
+    """
+
+    def __init__(self, mapping: dict[str, str]) -> None:
+        self.mapping = mapping
+
+    def fit(self, X: pd.DataFrame, y: Any = None) -> Self:
+        if not isinstance(X, pd.DataFrame):
+            raise TypeError(f"RenameColumns attend un pandas.DataFrame, reçu {type(X).__name__}")
+        self.feature_names_in_ = np.asarray(X.columns, dtype=object)
+        self.n_features_in_ = len(X.columns)
+        return self
+
+    def transform(self, X: pd.DataFrame) -> pd.DataFrame:
+        return X.rename(columns=self.mapping)
+
+    def get_feature_names_out(self, input_features: Any = None) -> np.ndarray:
+        if input_features is None:
+            if not hasattr(self, "feature_names_in_"):
+                raise ValueError("RenameColumns n'est pas encore ajusté (appeler fit d'abord)")
+            input_features = self.feature_names_in_
+        return np.asarray([self.mapping.get(f, f) for f in input_features], dtype=object)
+
+
 def build_preprocessor(cfg: Config) -> Pipeline:
     """Pipeline : variables physiques → encodage du type produit + passthrough numérique.
 
     Seules les variables explicatives sortent du pipeline : ids, colonnes de fuite et cible
-    sont exclues (remainder="drop"). La sortie est un DataFrame pandas avec des noms de
-    colonnes lisibles (utile pour SHAP).
+    sont exclues (remainder="drop"). La sortie est un DataFrame pandas aux noms snake_case :
+    ceux de COLUMN_MAP pour les mesures, "product_type" pour le type, et les 3 variables
+    physiques (noms identiques à l'API, compatibles XGBoost, lisibles dans SHAP).
     """
     product_type = cfg.columns.product_type
+    output_names = {csv: api for api, csv in COLUMN_MAP.items()}
+    output_names[product_type.column] = PRODUCT_TYPE_FEATURE
     encoder = ColumnTransformer(
         transformers=[
             (
@@ -141,6 +175,7 @@ def build_preprocessor(cfg: Config) -> Pipeline:
         steps=[
             ("physical_features", PhysicalFeatures.from_config(cfg)),
             ("encode", encoder),
+            ("rename", RenameColumns(output_names)),
         ]
     )
     return pipeline.set_output(transform="pandas")

@@ -13,7 +13,9 @@ from predictive_maintenance_iot.config import Config, load_config
 from predictive_maintenance_iot.data.validation import COLUMN_MAP
 from predictive_maintenance_iot.features.engineering import (
     NEW_FEATURES,
+    PRODUCT_TYPE_FEATURE,
     PhysicalFeatures,
+    RenameColumns,
     build_preprocessor,
 )
 
@@ -134,15 +136,45 @@ def test_preprocessor_output_columns(ai4i_df: pd.DataFrame, cfg: Config) -> None
     excluded = {*cols.ids, *cols.leakage, cols.target}
     assert not excluded & set(out.columns)
     assert set(NEW_FEATURES) <= set(out.columns)
-    assert list(out.columns) == [cols.product_type.column, *cols.numeric, *NEW_FEATURES]
+    assert list(out.columns) == [
+        "product_type",
+        "air_temperature_k",
+        "process_temperature_k",
+        "rotational_speed_rpm",
+        "torque_nm",
+        "tool_wear_min",
+        "temp_diff_k",
+        "power_w",
+        "strain_min_nm",
+    ]
+
+
+def test_preprocessor_names_are_xgboost_safe(ai4i_df: pd.DataFrame, cfg: Config) -> None:
+    preprocessor = build_preprocessor(cfg).fit(ai4i_df)
+    names = list(preprocessor.get_feature_names_out())
+
+    assert names == list(preprocessor.transform(ai4i_df).columns)
+    offending = [name for name in names if any(char in name for char in "[]<")]
+    assert offending == []
 
 
 def test_preprocessor_encodes_product_type(ai4i_df: pd.DataFrame, cfg: Config) -> None:
     out = build_preprocessor(cfg).fit_transform(ai4i_df)
     column = cfg.columns.product_type.column
 
-    mapping = dict(zip(ai4i_df[column], out[column], strict=True))
+    mapping = dict(zip(ai4i_df[column], out[PRODUCT_TYPE_FEATURE], strict=True))
     assert mapping == {"L": 0, "M": 1, "H": 2}
+
+
+def test_rename_columns_keeps_unmapped_names() -> None:
+    df = pd.DataFrame({"a [x]": [1.0], "b": [2.0]})
+    renamer = RenameColumns({"a [x]": "a_x"}).fit(df)
+
+    out = renamer.transform(df)
+
+    assert list(out.columns) == ["a_x", "b"]
+    assert list(renamer.get_feature_names_out()) == ["a_x", "b"]
+    assert list(df.columns) == ["a [x]", "b"]  # entrée non modifiée
 
 
 def test_preprocessor_joblib_roundtrip(ai4i_df: pd.DataFrame, cfg: Config, tmp_path: Path) -> None:

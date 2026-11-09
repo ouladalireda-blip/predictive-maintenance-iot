@@ -49,8 +49,10 @@ data/processed/*
 !data/processed/.gitkeep
 
 # MLflow
+mlflow.db
 mlruns/
 mlartifacts/
 
 # Model artifacts
+artifacts/
 *.joblib
