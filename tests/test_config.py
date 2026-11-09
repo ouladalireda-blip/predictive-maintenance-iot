@@ -46,6 +46,9 @@ def test_load_real_config() -> None:
     assert config.columns.target == "Machine failure"
     assert set(config.sensor_bounds) == set(config.columns.numeric)
     assert config.model.xgboost.scale_pos_weight == "auto"
+    assert config.columns.row_id == "UDI"
+    assert config.columns.product_type.column == "Type"
+    assert config.columns.product_type.allowed == ["L", "M", "H"]
 
 
 def test_missing_file_raises(tmp_path: Path) -> None:
@@ -121,6 +124,36 @@ def test_forbidden_column_in_features(
 ) -> None:
     base_config["columns"][feature_group].append(column)
     with pytest.raises(ValidationError, match="colonnes interdites"):
+        load_config(write_config(base_config))
+
+
+def test_row_id_must_be_in_ids(base_config: dict[str, Any], write_config: WriteConfig) -> None:
+    base_config["columns"]["row_id"] = "Serial"
+    with pytest.raises(ValidationError, match="row_id 'Serial' doit figurer dans ids"):
+        load_config(write_config(base_config))
+
+
+def test_product_type_column_must_be_in_categorical(
+    base_config: dict[str, Any], write_config: WriteConfig
+) -> None:
+    base_config["columns"]["product_type"]["column"] = "Quality"
+    with pytest.raises(ValidationError, match="'Quality' doit figurer dans categorical"):
+        load_config(write_config(base_config))
+
+
+def test_product_type_allowed_not_empty(
+    base_config: dict[str, Any], write_config: WriteConfig
+) -> None:
+    base_config["columns"]["product_type"]["allowed"] = []
+    with pytest.raises(ValidationError, match="ne doit pas être vide"):
+        load_config(write_config(base_config))
+
+
+def test_product_type_allowed_no_duplicates(
+    base_config: dict[str, Any], write_config: WriteConfig
+) -> None:
+    base_config["columns"]["product_type"]["allowed"] = ["L", "M", "L"]
+    with pytest.raises(ValidationError, match=r"doublons : \['L'\]"):
         load_config(write_config(base_config))
 
 

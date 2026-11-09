@@ -31,12 +31,43 @@ class PathsConfig(_Section):
     artifacts_dir: Path
 
 
+class ProductTypeConfig(_Section):
+    column: str
+    allowed: list[str]
+
+    @model_validator(mode="after")
+    def _allowed_non_empty_unique(self) -> Self:
+        if not self.allowed:
+            raise ValueError("product_type.allowed ne doit pas être vide")
+        duplicates = sorted({v for v in self.allowed if self.allowed.count(v) > 1})
+        if duplicates:
+            raise ValueError(f"product_type.allowed contient des doublons : {duplicates}")
+        return self
+
+
 class ColumnsConfig(_Section):
     target: str
     ids: list[str]
+    row_id: str
+    product_type: ProductTypeConfig
     leakage: list[str]
     categorical: list[str]
     numeric: list[str]
+
+    @model_validator(mode="after")
+    def _row_id_in_ids(self) -> Self:
+        if self.row_id not in self.ids:
+            raise ValueError(f"row_id '{self.row_id}' doit figurer dans ids {self.ids}")
+        return self
+
+    @model_validator(mode="after")
+    def _product_type_in_categorical(self) -> Self:
+        column = self.product_type.column
+        if column not in self.categorical:
+            raise ValueError(
+                f"product_type.column '{column}' doit figurer dans categorical {self.categorical}"
+            )
+        return self
 
     @model_validator(mode="after")
     def _no_forbidden_features(self) -> Self:

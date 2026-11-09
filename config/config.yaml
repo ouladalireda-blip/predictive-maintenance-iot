@@ -12,6 +12,10 @@ paths:
 columns:
   target: "Machine failure"
   ids: ["UDI", "Product ID"]                   # identifiants : aucun pouvoir prédictif réel, à exclure
+  row_id: "UDI"                                # identifiant unique de ligne (doit figurer dans ids)
+  product_type:                                # variable catégorielle de qualité produit
+    column: "Type"                             # doit figurer dans categorical
+    allowed: ["L", "M", "H"]
   leakage: ["TWF", "HDF", "PWF", "OSF", "RNF"] # décrivent la panne elle-même : interdits comme variables
   categorical: ["Type"]                        # qualité produit L / M / H
   numeric:
