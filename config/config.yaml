@@ -79,3 +79,18 @@ analysis:
   cv_folds: 5                 # validation croisée stratifiée sur TRAIN
   bootstrap_iterations: 1000  # rééchantillonnages de VAL pour les intervalles à 95 %
   shap_examples: 2            # pannes détectées expliquées individuellement
+
+# API d'inférence (sprint 3).
+api:
+  inference_log_path: data/inference_log.db   # journal SQLite des prédictions (ignoré par git)
+  max_batch_size: 100
+  actions:   # textes modifiables par la maintenance
+    critical_default: "Arrêter la machine et inspecter avant reprise."
+    preventive: "Planifier le remplacement de l'outil au prochain arrêt programmé."
+    by_feature:
+      power_w: "Vérifier la charge et les paramètres de coupe (puissance hors plage)."
+      strain_min_nm: "Remplacer l'outil : contrainte d'usure excessive."
+      tool_wear_min: "Remplacer l'outil : usure élevée."
+      temp_diff_k: "Vérifier le refroidissement : évacuation thermique insuffisante."
+      rotational_speed_rpm: "Vérifier la vitesse de broche et le refroidissement."
+      torque_nm: "Vérifier l'effort de coupe et l'outil."

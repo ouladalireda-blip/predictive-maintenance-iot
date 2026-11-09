@@ -170,6 +170,23 @@ class AnalysisConfig(_Section):
     shap_examples: PositiveInt
 
 
+NonEmptyStr = Annotated[str, Field(min_length=1)]
+
+
+class ActionsConfig(_Section):
+    """Textes d'action recommandée, modifiables par la maintenance sans toucher au code."""
+
+    critical_default: NonEmptyStr
+    preventive: NonEmptyStr
+    by_feature: dict[str, NonEmptyStr]
+
+
+class ApiConfig(_Section):
+    inference_log_path: Path
+    max_batch_size: PositiveInt
+    actions: ActionsConfig
+
+
 class Config(_Section):
     project: ProjectConfig
     paths: PathsConfig
@@ -181,6 +198,7 @@ class Config(_Section):
     mlflow: MlflowConfig
     baselines: BaselinesConfig
     analysis: AnalysisConfig
+    api: ApiConfig
 
     @model_validator(mode="after")
     def _osf_thresholds_match_product_types(self) -> Self:

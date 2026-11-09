@@ -62,3 +62,6 @@ artifacts/*
 !artifacts/thresholds.json
 !artifacts/model_fingerprint.json
 !artifacts/test_results.json
+
+# Journal des inférences de l'API
+data/inference_log.db

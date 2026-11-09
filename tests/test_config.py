@@ -50,6 +50,9 @@ def test_load_real_config() -> None:
     assert config.columns.product_type.column == "Type"
     assert config.columns.product_type.allowed == ["L", "M", "H"]
     assert config.paths.reports_dir == Path("reports")
+    assert config.api.inference_log_path == Path("data/inference_log.db")
+    assert config.api.max_batch_size == 100
+    assert "power_w" in config.api.actions.by_feature
     assert config.baselines.preventive_tool_wear_min == 200
     assert config.baselines.expert_rules.osf_strain_max_min_nm == {
         "L": 11000,
@@ -263,6 +266,27 @@ def test_osf_thresholds_match_product_types(
 ) -> None:
     base_config["baselines"]["expert_rules"]["osf_strain_max_min_nm"] = thresholds
     with pytest.raises(ValidationError, match="doit contenir exactement les types"):
+        load_config(write_config(base_config))
+
+
+# --- api ------------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize("value", [0, -5])
+def test_max_batch_size_must_be_positive(
+    base_config: dict[str, Any], write_config: WriteConfig, value: int
+) -> None:
+    base_config["api"]["max_batch_size"] = value
+    with pytest.raises(ValidationError, match="greater than 0"):
+        load_config(write_config(base_config))
+
+
+@pytest.mark.parametrize("key", ["critical_default", "preventive"])
+def test_action_texts_must_not_be_empty(
+    base_config: dict[str, Any], write_config: WriteConfig, key: str
+) -> None:
+    base_config["api"]["actions"][key] = ""
+    with pytest.raises(ValidationError, match="at least 1 character"):
         load_config(write_config(base_config))
 
 
