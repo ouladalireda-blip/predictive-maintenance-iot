@@ -61,3 +61,4 @@ reports/
 artifacts/*
 !artifacts/thresholds.json
 !artifacts/model_fingerprint.json
+!artifacts/test_results.json
